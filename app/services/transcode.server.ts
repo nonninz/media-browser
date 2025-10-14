@@ -135,9 +135,19 @@ async function getVideoDuration(inputPath: string): Promise<number> {
 export async function startHLSTranscoding(inputPath: string, cacheKey: string): Promise<HLSTranscodeResult> {
   const segmentDir = path.join(TRANSCODE_CACHE_DIR, cacheKey);
   const manifestPath = path.join(segmentDir, "master.m3u8");
+  const durationFilePath = path.join(segmentDir, "duration.txt");
 
   // Create segment directory
   await fs.mkdir(segmentDir, { recursive: true });
+
+  // Get and save video duration upfront for the custom player
+  try {
+    const duration = await getVideoDuration(inputPath);
+    await fs.writeFile(durationFilePath, duration.toString());
+    console.log(`Video duration: ${duration.toFixed(2)}s, saved to ${durationFilePath}`);
+  } catch (error) {
+    console.warn("Could not get/save video duration:", error);
+  }
 
   // Check if manifest already exists AND is complete
   try {

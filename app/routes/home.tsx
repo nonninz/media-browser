@@ -3,7 +3,7 @@ import type { Route } from "./+types/home";
 import { browseDirectory } from "~/services/media.server";
 import {
   Header,
-  VideoPlayer,
+  CustomVideoPlayer,
   Breadcrumb,
   FileBrowser,
   BackButton,
@@ -59,8 +59,9 @@ export default function Home() {
       />
 
       {currentVideo && (
-        <VideoPlayer
+        <CustomVideoPlayer
           src={`/stream/${currentVideo}`}
+          videoPath={currentVideo}
           title={videoTitle}
           onClose={closeVideo}
         />
