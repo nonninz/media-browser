@@ -71,8 +71,10 @@ MEDIA_ROOT=~/Movies npm run dev
 ✅ Range request support for video seeking  
 ✅ Security: Path traversal protection  
 ✅ Responsive UI with TailwindCSS  
-✅ **On-the-fly video transcoding with FFmpeg**  
-✅ **Smart caching for transcoded videos**  
+✅ **HLS-based on-the-fly video transcoding with FFmpeg**  
+✅ **Smart segment caching for transcoded videos**  
+✅ **Instant playback start (no waiting for full transcode)**  
+✅ **Full seeking support in transcoded videos**  
 
 ### Supported Video Formats
 
@@ -80,7 +82,7 @@ MEDIA_ROOT=~/Movies npm run dev
 - MP4 (`.mp4`)
 - WebM (`.webm`)
 
-**Auto-transcoded formats** (converted on-the-fly):
+**Auto-transcoded formats** (converted on-the-fly to HLS):
 - AVI (`.avi`)
 - MKV (`.mkv`)
 - MOV (`.mov`)
@@ -88,7 +90,11 @@ MEDIA_ROOT=~/Movies npm run dev
 - FLV (`.flv`)
 - WMV (`.wmv`)
 
-All transcoded videos are cached for faster subsequent playback.
+**HLS Transcoding Benefits:**
+- Playback starts in 1-2 seconds (no waiting for full transcode)
+- Perfect seeking/skipping support
+- Segments cached for faster subsequent playback
+- Works with all modern browsers via HLS.js
 
 ## Usage Examples
 
@@ -163,17 +169,19 @@ If you see "Permission denied" errors:
 ## Next Steps (Future Iterations)
 
 Completed:
-- ✅ FFmpeg integration for transcoding
+- ✅ FFmpeg integration for HLS transcoding
 - ✅ Support for additional video codecs
+- ✅ Instant playback with segment-based streaming
+- ✅ Full seeking support in transcoded videos
 
 Planned enhancements:
+- Adaptive bitrate streaming (multiple quality levels)
 - Subtitle support
 - Thumbnail generation
 - Search functionality
 - Playlist creation
 - Mobile app optimization
 - Cache cleanup scheduler
-- Transcoding progress indicator
 
 ## Security Notes
 

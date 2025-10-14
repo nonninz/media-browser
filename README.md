@@ -5,13 +5,14 @@ A modern, full-stack media browsing and streaming application built with React R
 ## Features
 
 - 🗂️ Directory browsing with intuitive navigation
-- 🎬 Video streaming with embedded player
+- 🎬 Video streaming with embedded HLS player
 - 🎯 Support for multiple video formats (MP4, WebM, OGG, MOV, AVI, MKV, M4V)
-- 🔄 **On-the-fly video transcoding** for incompatible formats using FFmpeg
-- 💾 Smart caching system for transcoded videos
+- 🔄 **HLS-based on-the-fly transcoding** for incompatible formats using FFmpeg
+- ⚡ **Instant playback start** - no waiting for full transcode
+- 🎯 **Full seeking support** - skip to any point in transcoded videos
+- 💾 Smart segment caching system for transcoded videos
 - 🔒 Secure path traversal prevention
 - 📱 Responsive design with modern UI
-- ⚡ Range request support for video seeking
 - 🎨 Beautiful TailwindCSS styling
 
 ## Getting Started
@@ -70,7 +71,7 @@ The application supports all major video formats:
 - MP4 (`.mp4`)
 - WebM (`.webm`)
 
-**Auto-transcoded formats** (converted on-the-fly using FFmpeg):
+**Auto-transcoded formats** (converted on-the-fly to HLS using FFmpeg):
 - AVI (`.avi`)
 - MKV (`.mkv`)
 - MOV (`.mov`)
@@ -78,7 +79,12 @@ The application supports all major video formats:
 - FLV (`.flv`)
 - WMV (`.wmv`)
 
-*Transcoded videos are cached to improve subsequent playback performance*
+**How HLS Transcoding Works:**
+1. Videos are transcoded into small segments (4 seconds each)
+2. Playback starts as soon as first segments are ready (~1-2 seconds)
+3. Seeking works perfectly - jump to any point instantly
+4. Segments are cached for faster subsequent playback
+5. Uses HLS.js for optimal browser compatibility
 
 ### FFmpeg Requirement
 
@@ -137,7 +143,8 @@ The application includes security measures to prevent directory traversal attack
 - ⚡️ Vite (Hot Module Replacement)
 - 🎨 TailwindCSS v4 (Styling)
 - 📦 TypeScript (Type safety)
-- 🎬 Native HTML5 Video Player
+- 🎬 HLS.js (Adaptive video streaming)
+- 🎥 FFmpeg (Video transcoding)
 
 ## Project Structure
 
@@ -156,13 +163,15 @@ The application includes security measures to prevent directory traversal attack
 ## Future Enhancements
 
 - [x] FFmpeg integration for on-the-fly transcoding
+- [x] HLS streaming with instant playback
 - [x] Support for additional media formats
+- [ ] Adaptive bitrate streaming (multiple quality levels)
 - [ ] Image gallery view
 - [ ] Search functionality
 - [ ] Favorites/bookmarks
 - [ ] Playlist support
 - [ ] Cache cleanup scheduler
-- [ ] Transcoding progress indicator
+- [ ] Subtitle support
 
 ---
 
