@@ -7,6 +7,8 @@ A modern, full-stack media browsing and streaming application built with React R
 - 🗂️ Directory browsing with intuitive navigation
 - 🎬 Video streaming with embedded player
 - 🎯 Support for multiple video formats (MP4, WebM, OGG, MOV, AVI, MKV, M4V)
+- 🔄 **On-the-fly video transcoding** for incompatible formats using FFmpeg
+- 💾 Smart caching system for transcoded videos
 - 🔒 Secure path traversal prevention
 - 📱 Responsive design with modern UI
 - ⚡ Range request support for video seeking
@@ -34,9 +36,14 @@ Or create a `.env` file:
 
 ```env
 MEDIA_ROOT=/path/to/your/media/folder
+TRANSCODE_CACHE_DIR=/tmp/media-browser-cache
 ```
 
-If not set, defaults to `/` (system root).
+**Environment Variables:**
+- `MEDIA_ROOT` - Root directory for media files (default: `/`)
+- `TRANSCODE_CACHE_DIR` - Directory for storing transcoded video cache (default: `/tmp/media-browser-cache`)
+
+If not set, defaults will be used.
 
 ### Development
 
@@ -57,15 +64,36 @@ Your application will be available at `http://localhost:5173`.
 
 ### Supported Video Formats
 
-The application currently supports directly streamable formats:
-- MP4 (`.mp4`, `.m4v`)
+The application supports all major video formats:
+
+**Browser-native formats** (streamed directly):
+- MP4 (`.mp4`)
 - WebM (`.webm`)
-- OGG (`.ogg`)
-- MOV (`.mov`)
+
+**Auto-transcoded formats** (converted on-the-fly using FFmpeg):
 - AVI (`.avi`)
 - MKV (`.mkv`)
+- MOV (`.mov`)
+- M4V (`.m4v`)
+- FLV (`.flv`)
+- WMV (`.wmv`)
 
-*Note: FFmpeg transcoding support is planned for the second iteration*
+*Transcoded videos are cached to improve subsequent playback performance*
+
+### FFmpeg Requirement
+
+**Important:** FFmpeg must be installed on the system for transcoding to work:
+
+```bash
+# macOS
+brew install ffmpeg
+
+# Ubuntu/Debian
+sudo apt-get install ffmpeg
+
+# Windows
+choco install ffmpeg
+```
 
 ## Building for Production
 
@@ -97,6 +125,7 @@ docker run -p 3000:3000 -v /your/media/path:/media -e MEDIA_ROOT=/media media-br
 ### Environment Variables
 
 - `MEDIA_ROOT` - Root directory for media files (default: `/`)
+- `TRANSCODE_CACHE_DIR` - Directory for storing transcoded video cache (default: `/tmp/media-browser-cache`)
 
 ## Security
 
@@ -126,12 +155,14 @@ The application includes security measures to prevent directory traversal attack
 
 ## Future Enhancements
 
-- [ ] FFmpeg integration for on-the-fly transcoding
-- [ ] Support for additional media formats
+- [x] FFmpeg integration for on-the-fly transcoding
+- [x] Support for additional media formats
 - [ ] Image gallery view
 - [ ] Search functionality
 - [ ] Favorites/bookmarks
 - [ ] Playlist support
+- [ ] Cache cleanup scheduler
+- [ ] Transcoding progress indicator
 
 ---
 

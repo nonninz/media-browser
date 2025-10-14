@@ -7,28 +7,47 @@
 npm install
 ```
 
-### 2. Configure Media Directory
+### 2. Install FFmpeg (Required for Transcoding)
+
+FFmpeg is required for on-the-fly video transcoding:
+
+```bash
+# macOS
+brew install ffmpeg
+
+# Ubuntu/Debian
+sudo apt-get install ffmpeg
+
+# Windows
+choco install ffmpeg
+```
+
+### 3. Configure Media Directory
 
 Create a `.env` file in the project root (optional):
 ```bash
 MEDIA_ROOT=/path/to/your/media/folder
+TRANSCODE_CACHE_DIR=/tmp/media-browser-cache
 ```
 
-Or set the environment variable directly:
+Or set environment variables directly:
 ```bash
 export MEDIA_ROOT=/path/to/your/media/folder
+export TRANSCODE_CACHE_DIR=/tmp/media-browser-cache
 ```
 
-**Default:** If not set, `MEDIA_ROOT` defaults to `/` (system root)
+**Defaults:**
+- `MEDIA_ROOT` defaults to `/` (system root)
+- `TRANSCODE_CACHE_DIR` defaults to `/tmp/media-browser-cache`
 
-### 3. Run Development Server
+### 4. Run Development Server
 ```bash
 npm run dev
 ```
 
 The application will be available at `http://localhost:5173`
 
-### 4. Test with Sample Media
+### 5. Test with Sample Media
 
 For testing, you can use any directory with video files:
 ```bash
@@ -52,16 +71,24 @@ MEDIA_ROOT=~/Movies npm run dev
 ✅ Range request support for video seeking  
 ✅ Security: Path traversal protection  
 ✅ Responsive UI with TailwindCSS  
+✅ **On-the-fly video transcoding with FFmpeg**  
+✅ **Smart caching for transcoded videos**  
 
 ### Supported Video Formats
 
-Currently supports directly streamable formats:
-- MP4 (`.mp4`, `.m4v`)
+**Browser-native formats** (streamed directly):
+- MP4 (`.mp4`)
 - WebM (`.webm`)
-- OGG (`.ogg`)
-- QuickTime (`.mov`)
+
+**Auto-transcoded formats** (converted on-the-fly):
 - AVI (`.avi`)
-- Matroska (`.mkv`)
+- MKV (`.mkv`)
+- MOV (`.mov`)
+- M4V (`.m4v`)
+- FLV (`.flv`)
+- WMV (`.wmv`)
+
+All transcoded videos are cached for faster subsequent playback.
 
 ## Usage Examples
 
@@ -122,10 +149,11 @@ If you see "Permission denied" errors:
 - Check file/folder permissions with `ls -la`
 
 ### Videos Not Playing
-- Verify the video format is supported
+- Verify FFmpeg is installed (`ffmpeg -version`)
 - Check browser console for errors
 - Ensure the video file is not corrupted
-- Some formats may require transcoding (coming in future iteration)
+- Check server logs for transcoding errors
+- Verify `TRANSCODE_CACHE_DIR` is writable
 
 ### Directory Not Found
 - Verify `MEDIA_ROOT` path exists
@@ -134,14 +162,18 @@ If you see "Permission denied" errors:
 
 ## Next Steps (Future Iterations)
 
+Completed:
+- ✅ FFmpeg integration for transcoding
+- ✅ Support for additional video codecs
+
 Planned enhancements:
-- FFmpeg integration for transcoding
-- Support for additional video codecs
 - Subtitle support
 - Thumbnail generation
 - Search functionality
 - Playlist creation
 - Mobile app optimization
+- Cache cleanup scheduler
+- Transcoding progress indicator
 
 ## Security Notes
 
