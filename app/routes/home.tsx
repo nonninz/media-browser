@@ -30,6 +30,9 @@ export default function Home() {
     } else if (item.isVideo) {
       const currentPath = searchParams.get("path") || "";
       navigate(`/?path=${encodeURIComponent(currentPath)}&video=${encodeURIComponent(item.path)}`);
+    } else if (item.isImage) {
+      // Open images in a new tab using the stream endpoint
+      window.open(`/stream/${item.path}`, '_blank');
     }
   };
 

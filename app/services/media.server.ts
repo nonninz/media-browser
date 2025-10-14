@@ -156,6 +156,12 @@ export function getMimeType(filePath: string): string {
     ".avi": "video/x-msvideo",
     ".mkv": "video/x-matroska",
     ".m4v": "video/x-m4v",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
   };
   return mimeTypes[ext] || "application/octet-stream";
 }
