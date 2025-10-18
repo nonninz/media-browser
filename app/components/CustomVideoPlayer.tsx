@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import Hls from "hls.js";
 
 interface CustomVideoPlayerProps {
@@ -11,9 +11,11 @@ interface CustomVideoPlayerProps {
 interface TranscodeStatus {
   cacheKey: string;
   duration: number | null;
-  segments: number[];
+  segments: number[]; // All segment numbers that exist on disk
   segmentCount: number;
-  timeCovered: number;
+  minSegment: number;
+  maxSegment: number;
+  totalExpectedSegments: number | null;
   isComplete: boolean;
 }
 
@@ -27,45 +29,81 @@ export function CustomVideoPlayer({ src, videoPath, title, onClose }: CustomVide
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const statusIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [manifestStartSegment, setManifestStartSegment] = useState(0); // Which segment the current manifest starts at
+  const isUnmountingRef = useRef(false);
 
-  // Poll for transcode status
-  useEffect(() => {
-    const pollStatus = async () => {
-      try {
-        const response = await fetch(`/transcode-status?path=${encodeURIComponent(videoPath)}`);
-        const status: TranscodeStatus = await response.json();
-        console.log("[Player] Transcode status received:", status);
-        setTranscodeStatus(status);
-        
-        // Set duration from transcode status (more reliable than video element)
-        if (status.duration && !isNaN(status.duration)) {
-          console.log(`[Player] Setting duration from status: ${status.duration}s`);
-          setDuration(status.duration);
-        } else {
-          console.warn(`[Player] Duration not available in status:`, status.duration);
-        }
-      } catch (error) {
-        console.error("[Player] Error polling transcode status:", error);
-      }
-    };
-
-    // Initial poll
-    pollStatus();
+  // Create or recreate HLS player
+  const initializeHLS = useCallback((video: HTMLVideoElement, startSegment: number = 0) => {
+    console.log(`[HLS] Initializing player for segments starting at ${startSegment}`);
     
-    // Set up interval
-    const interval = setInterval(pollStatus, 2000); // Poll every 2 seconds
-    statusIntervalRef.current = interval;
+    // Destroy existing instance
+    if (hlsRef.current) {
+      console.log("[HLS] Destroying old instance");
+      hlsRef.current.destroy();
+    }
 
-    return () => {
-      if (statusIntervalRef.current) {
-        clearInterval(statusIntervalRef.current);
-        statusIntervalRef.current = null;
+    const hls = new Hls({
+      enableWorker: true,
+      lowLatencyMode: false,
+      backBufferLength: 90,
+      maxBufferLength: 30,
+      maxMaxBufferLength: 60,
+    });
+
+    hlsRef.current = hls;
+    hls.loadSource(src);
+    hls.attachMedia(video);
+
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      console.log(`[HLS] Manifest loaded for segment ${startSegment}`);
+      setLoading(false);
+      setBuffering(false);
+      setError(null);
+      setManifestStartSegment(startSegment);
+      video.play().catch(err => {
+        console.warn("Autoplay failed:", err);
+        setError("Click play to start");
+      });
+    });
+
+    hls.on(Hls.Events.ERROR, (event, data) => {
+      if (isUnmountingRef.current) return;
+      
+      if (data.fatal) {
+        switch (data.type) {
+          case Hls.ErrorTypes.NETWORK_ERROR:
+            console.error("Network error, retrying...");
+            setTimeout(() => {
+              if (!isUnmountingRef.current) {
+                hls.startLoad();
+              }
+            }, 1000);
+            break;
+          case Hls.ErrorTypes.MEDIA_ERROR:
+            console.error("Media error, recovering...");
+            if (!isUnmountingRef.current) {
+              hls.recoverMediaError();
+            }
+            break;
+          default:
+            setError(`Playback error: ${data.details}`);
+            hls.destroy();
+            break;
+        }
       }
-    };
-  }, [videoPath]);
+    });
 
-  // Initialize HLS player
+    hls.on(Hls.Events.FRAG_LOADING, () => {
+      setBuffering(true);
+    });
+
+    hls.on(Hls.Events.FRAG_LOADED, () => {
+      setBuffering(false);
+      setError(null);
+    });
+  }, [src]);
+
+  // Initialize player on mount
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -73,7 +111,7 @@ export function CustomVideoPlayer({ src, videoPath, title, onClose }: CustomVide
     setLoading(true);
     setError(null);
 
-    const initializePlayer = async () => {
+    const init = async () => {
       try {
         const response = await fetch(src, { method: 'HEAD' });
         const contentType = response.headers.get('Content-Type') || '';
@@ -81,53 +119,11 @@ export function CustomVideoPlayer({ src, videoPath, title, onClose }: CustomVide
         const isHLS = contentType.includes('mpegurl') || contentType.includes('m3u8');
 
         if (isHLS && Hls.isSupported()) {
-          const hls = new Hls({
-            enableWorker: true,
-            lowLatencyMode: false,
-            backBufferLength: 90,
-            maxBufferLength: 30,
-            maxMaxBufferLength: 60,
-          });
-
-          hlsRef.current = hls;
-          hls.loadSource(src);
-          hls.attachMedia(video);
-
-          hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            console.log("HLS manifest loaded");
-            setLoading(false);
-            video.play().catch(err => console.warn("Autoplay failed:", err));
-          });
-
-          hls.on(Hls.Events.ERROR, (event, data) => {
-            if (data.fatal) {
-              switch (data.type) {
-                case Hls.ErrorTypes.NETWORK_ERROR:
-                  console.error("Network error, retrying...");
-                  setTimeout(() => hls.startLoad(), 1000);
-                  break;
-                case Hls.ErrorTypes.MEDIA_ERROR:
-                  console.error("Media error, recovering...");
-                  hls.recoverMediaError();
-                  break;
-                default:
-                  setError(`Playback error: ${data.details}`);
-                  hls.destroy();
-                  break;
-              }
-            }
-          });
-
-          hls.on(Hls.Events.FRAG_LOADING, () => {
-            setBuffering(true);
-          });
-
-          hls.on(Hls.Events.FRAG_LOADED, () => {
-            setBuffering(false);
-            setError(null);
-          });
+          console.log("[Player] Initializing HLS player from segment 0");
+          initializeHLS(video, 0);
         } else {
           // Fallback to native playback
+          console.log("[Player] Initializing native player");
           video.src = src;
           video.addEventListener("loadedmetadata", () => setLoading(false));
           video.addEventListener("error", () => setError("Failed to load video"));
@@ -138,57 +134,78 @@ export function CustomVideoPlayer({ src, videoPath, title, onClose }: CustomVide
       }
     };
 
-    initializePlayer();
+    init();
 
     return () => {
+      console.log("[Player] Cleanup: Destroying HLS and stopping transcode");
+      isUnmountingRef.current = true;
+      
+      // Destroy HLS player
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
       
-      // Stop transcoding when player unmounts
-      const stopTranscode = async () => {
-        try {
-          await fetch("/stop-transcode", {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: new URLSearchParams({ path: videoPath }),
-          });
-          console.log("Stopped transcoding");
-        } catch (error) {
-          console.error("Failed to stop transcoding:", error);
-        }
-      };
-      stopTranscode();
+      // Stop transcoding
+      const formData = new URLSearchParams({ path: videoPath });
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/stop-transcode", false);
+      xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+      try {
+        xhr.send(formData);
+        console.log("[Player] Stop-transcode sent");
+      } catch (error) {
+        console.error("[Player] Failed to send stop-transcode:", error);
+      }
     };
-  }, [src, videoPath]);
+  }, [src, videoPath, initializeHLS]);
+
+  // Poll for transcode status
+  useEffect(() => {
+    const pollStatus = async () => {
+      try {
+        const response = await fetch(`/transcode-status?path=${encodeURIComponent(videoPath)}`);
+        const status: TranscodeStatus = await response.json();
+        setTranscodeStatus(status);
+        
+        // Set duration from transcode status
+        if (status.duration && !isNaN(status.duration)) {
+          setDuration(status.duration);
+        }
+      } catch (error) {
+        console.error("[Player] Error polling transcode status:", error);
+      }
+    };
+
+    pollStatus();
+    const interval = setInterval(pollStatus, 2000);
+
+    return () => clearInterval(interval);
+  }, [videoPath]);
 
   // Update current time
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    const handleTimeUpdate = () => setCurrentTime(video.currentTime);
+    const handleTimeUpdate = () => {
+      // Calculate actual video time = manifest start offset + player time
+      const actualTime = manifestStartSegment * 4 + video.currentTime;
+      setCurrentTime(actualTime);
+    };
     const handlePlay = () => setIsPlaying(true);
     const handlePause = () => setIsPlaying(false);
-    const handleDurationChange = () => {
-      // Don't use video element duration - it only shows transcoded duration
-      // We get the full duration from transcode status
-      console.log(`Video element duration: ${video.duration}s (ignoring, using status duration)`);
-    };
 
     video.addEventListener("timeupdate", handleTimeUpdate);
     video.addEventListener("play", handlePlay);
     video.addEventListener("pause", handlePause);
-    video.addEventListener("durationchange", handleDurationChange);
 
     return () => {
       video.removeEventListener("timeupdate", handleTimeUpdate);
       video.removeEventListener("play", handlePlay);
       video.removeEventListener("pause", handlePause);
-      video.removeEventListener("durationchange", handleDurationChange);
     };
-  }, []);
+  }, [manifestStartSegment]);
 
   // Handle seeking
   const handleSeek = async (time: number) => {
@@ -196,34 +213,95 @@ export function CustomVideoPlayer({ src, videoPath, title, onClose }: CustomVide
     if (!video || !transcodeStatus) return;
 
     const targetSegment = Math.floor(time / 4);
-    const isTranscoded = transcodeStatus.segments.includes(targetSegment);
+    
+    // Check if segment exists on disk
+    const segmentExistsOnDisk = transcodeStatus.segments.includes(targetSegment);
+    
+    // Check if segment is in current manifest
+    const isInCurrentManifest = transcodeStatus.minSegment <= targetSegment && 
+                                 targetSegment <= transcodeStatus.maxSegment;
 
-    if (isTranscoded || time <= transcodeStatus.timeCovered) {
-      // Segment exists, seek normally
-      video.currentTime = time;
-    } else {
-      // Need to transcode from this point
-      console.log(`Seeking to untranscoded segment at ${time}s, triggering transcode...`);
+    console.log(`[Seek] Target: ${time}s (segment ${targetSegment}), onDisk: ${segmentExistsOnDisk}, inManifest: ${isInCurrentManifest}`);
+
+    if (isInCurrentManifest && segmentExistsOnDisk) {
+      // Segment is in current manifest - let HLS handle it natively
+      const timeInManifest = time - (manifestStartSegment * 4);
+      console.log(`[Seek] Native seek to ${timeInManifest}s within manifest`);
+      video.currentTime = timeInManifest;
+      setError(null);
+    } else if (segmentExistsOnDisk) {
+      // Segment exists on disk but not in current manifest - need new manifest
+      console.log(`[Seek] Segment exists, requesting new transcode from ${time}s`);
       setBuffering(true);
-      setError("Transcoding from this point, please wait...");
-
+      setError(`Loading from ${Math.floor(time)}s...`);
+      
       try {
         await fetch("/transcode-seek", {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams({ path: videoPath, seekTime: time.toString() }),
+          body: new URLSearchParams({ 
+            path: videoPath, 
+            seekTime: time.toString() 
+          }),
         });
-
-        // Wait a bit for segments to start generating
-        await new Promise(resolve => setTimeout(resolve, 3000));
         
-        // Try to seek
-        video.currentTime = time;
-        setError(null);
+        // Wait for new manifest to be ready
+        setTimeout(() => {
+          if (video && !isUnmountingRef.current) {
+            initializeHLS(video, targetSegment);
+          }
+        }, 2000);
       } catch (error) {
-        console.error("Seek transcode failed:", error);
-        setError("Failed to seek to this position");
-      } finally {
+        console.error("Failed to request seek transcode:", error);
+        setError("Failed to load from this position");
+        setBuffering(false);
+      }
+    } else {
+      // Segment doesn't exist - need to transcode it
+      console.log(`[Seek] Segment doesn't exist, starting transcode from ${time}s`);
+      setBuffering(true);
+      setError(`Transcoding from ${Math.floor(time)}s...`);
+      
+      try {
+        await fetch("/transcode-seek", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ 
+            path: videoPath, 
+            seekTime: time.toString() 
+          }),
+        });
+        
+        // Wait for segments to be ready, then reload HLS
+        const checkReady = setInterval(async () => {
+          try {
+            const response = await fetch(`/transcode-status?path=${encodeURIComponent(videoPath)}`);
+            const status: TranscodeStatus = await response.json();
+            
+            // Check if target segment is now available
+            if (status.segments.includes(targetSegment) && status.segments.length >= 2) {
+              clearInterval(checkReady);
+              console.log(`[Seek] Segments ready, reloading HLS`);
+              if (video && !isUnmountingRef.current) {
+                initializeHLS(video, targetSegment);
+              }
+            }
+          } catch (error) {
+            console.error("Error checking transcode status:", error);
+          }
+        }, 1000);
+        
+        // Safety timeout
+        setTimeout(() => {
+          clearInterval(checkReady);
+          if (buffering) {
+            setError("Transcoding taking too long");
+            setBuffering(false);
+          }
+        }, 30000);
+      } catch (error) {
+        console.error("Failed to request seek transcode:", error);
+        setError("Failed to start transcoding");
         setBuffering(false);
       }
     }
@@ -247,9 +325,50 @@ export function CustomVideoPlayer({ src, videoPath, title, onClose }: CustomVide
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const transcodedProgress = transcodeStatus && duration > 0 
-    ? Math.min((transcodeStatus.timeCovered / duration) * 100, 100) 
-    : 0;
+  // Calculate progress bars
+  // Progress bar shows ALL segments that exist on disk (could be non-contiguous)
+  const renderSegmentProgress = () => {
+    if (!transcodeStatus || !transcodeStatus.totalExpectedSegments || duration === 0) {
+      return null;
+    }
+
+    // Create array of segment ranges to show as green
+    const ranges: { start: number; end: number }[] = [];
+    if (transcodeStatus.segments.length > 0) {
+      let rangeStart = transcodeStatus.segments[0];
+      let rangeEnd = transcodeStatus.segments[0];
+
+      for (let i = 1; i < transcodeStatus.segments.length; i++) {
+        const seg = transcodeStatus.segments[i];
+        if (seg === rangeEnd + 1) {
+          // Contiguous, extend range
+          rangeEnd = seg;
+        } else {
+          // Gap found, save current range and start new one
+          ranges.push({ start: rangeStart, end: rangeEnd });
+          rangeStart = seg;
+          rangeEnd = seg;
+        }
+      }
+      ranges.push({ start: rangeStart, end: rangeEnd });
+    }
+
+    return ranges.map((range, idx) => {
+      const startPercent = (range.start / transcodeStatus.totalExpectedSegments!) * 100;
+      const widthPercent = ((range.end - range.start + 1) / transcodeStatus.totalExpectedSegments!) * 100;
+      return (
+        <div
+          key={idx}
+          className="absolute h-full bg-green-600/50"
+          style={{ 
+            left: `${startPercent}%`,
+            width: `${widthPercent}%` 
+          }}
+        />
+      );
+    });
+  };
+
   const playProgress = duration > 0 ? Math.min((currentTime / duration) * 100, 100) : 0;
 
   return (
@@ -310,24 +429,20 @@ export function CustomVideoPlayer({ src, videoPath, title, onClose }: CustomVide
                 const x = e.clientX - rect.left;
                 const percent = x / rect.width;
                 const time = percent * duration;
-                console.log(`Seek bar clicked: ${percent * 100}% = ${time}s (duration: ${duration}s)`);
                 if (duration > 0) {
                   handleSeek(time);
-                } else {
-                  console.warn("Cannot seek: duration is 0");
                 }
               }}
             >
-              {/* Transcoded progress (green) */}
-              <div
-                className="absolute h-full bg-green-600/50 rounded"
-                style={{ width: `${transcodedProgress}%` }}
-              />
+              {/* Transcoded segments (green) - can be non-contiguous */}
+              {renderSegmentProgress()}
+              
               {/* Play progress (blue) */}
               <div
                 className="absolute h-full bg-blue-500 rounded"
                 style={{ width: `${playProgress}%` }}
               />
+              
               {/* Hover effect */}
               <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity">
                 <div className="h-full bg-white/10 rounded" />
@@ -344,7 +459,9 @@ export function CustomVideoPlayer({ src, videoPath, title, onClose }: CustomVide
             <div className="text-xs text-slate-400">
               {transcodeStatus && (
                 <span>
-                  Transcoded: {Math.floor(transcodeStatus.timeCovered / 60)}:{Math.floor(transcodeStatus.timeCovered % 60).toString().padStart(2, '0')} / {formatTime(duration)}
+                  {transcodeStatus.segmentCount} segments
+                  {transcodeStatus.totalExpectedSegments && 
+                    ` / ${transcodeStatus.totalExpectedSegments}`}
                   {!transcodeStatus.isComplete && ' (transcoding...)'}
                 </span>
               )}
@@ -356,8 +473,10 @@ export function CustomVideoPlayer({ src, videoPath, title, onClose }: CustomVide
               {isPlaying ? "Pause" : "Play"}
             </button>
             <div className="text-xs text-slate-400 w-40 text-right">
-              {transcodeStatus && transcodeStatus.segmentCount > 0 && (
-                <span>{transcodeStatus.segmentCount} segments</span>
+              {transcodeStatus && transcodeStatus.minSegment >= 0 && (
+                <span>
+                  Segs {transcodeStatus.minSegment}-{transcodeStatus.maxSegment}
+                </span>
               )}
             </div>
           </div>
@@ -366,4 +485,3 @@ export function CustomVideoPlayer({ src, videoPath, title, onClose }: CustomVide
     </div>
   );
 }
-

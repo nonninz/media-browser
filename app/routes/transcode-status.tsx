@@ -29,7 +29,7 @@ export async function loader({ request }: { request: Request }) {
       // Duration not available yet
     }
     
-    // Check which segments exist
+    // Check which segments exist - scan entire directory
     const segments: number[] = [];
     try {
       const files = await fs.readdir(segmentDir);
@@ -44,19 +44,33 @@ export async function loader({ request }: { request: Request }) {
       // Directory doesn't exist yet
     }
     
-    // Calculate time covered (assuming 4 second segments)
-    const timeCovered = segments.length * 4;
+    // Calculate various stats
+    const maxSegment = segments.length > 0 ? Math.max(...segments) : -1;
+    const minSegment = segments.length > 0 ? Math.min(...segments) : -1;
+    
+    // Total expected segments if video is fully transcoded
+    const totalExpectedSegments = duration ? Math.ceil(duration / 4) : null;
+    
+    // Is transcoding complete?
+    const isComplete = duration && totalExpectedSegments
+      ? maxSegment >= totalExpectedSegments - 1
+      : false;
     
     const response = {
       cacheKey,
       duration,
-      segments,
+      segments, // Array of all segment numbers that exist
       segmentCount: segments.length,
-      timeCovered,
-      isComplete: duration ? timeCovered >= duration : false,
+      minSegment,
+      maxSegment,
+      totalExpectedSegments,
+      isComplete,
     };
     
-    console.log(`[Transcode Status] Returning:`, response);
+    // Only log periodically to avoid spam
+    if (Math.random() < 0.1) {
+      console.log(`[Transcode Status] ${segments.length} segments exist: [${minSegment}...${maxSegment}]`);
+    }
     
     return Response.json(response);
   } catch (error) {

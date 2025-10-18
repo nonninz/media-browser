@@ -140,13 +140,19 @@ export async function startHLSTranscoding(inputPath: string, cacheKey: string): 
   // Create segment directory
   await fs.mkdir(segmentDir, { recursive: true });
 
-  // Get and save video duration upfront for the custom player
+  // Get and save video duration upfront for the custom player (only if not already saved)
   try {
-    const duration = await getVideoDuration(inputPath);
-    await fs.writeFile(durationFilePath, duration.toString());
-    console.log(`Video duration: ${duration.toFixed(2)}s, saved to ${durationFilePath}`);
-  } catch (error) {
-    console.warn("Could not get/save video duration:", error);
+    await fs.access(durationFilePath);
+    // Duration file already exists, no need to regenerate
+  } catch {
+    // Duration file doesn't exist, create it
+    try {
+      const duration = await getVideoDuration(inputPath);
+      await fs.writeFile(durationFilePath, duration.toString());
+      console.log(`Video duration: ${duration.toFixed(2)}s, saved to ${durationFilePath}`);
+    } catch (error) {
+      console.warn("Could not get/save video duration:", error);
+    }
   }
 
   // Check if manifest already exists AND is complete
@@ -325,15 +331,162 @@ export function getHLSSegmentDir(cacheKey: string): string {
 }
 
 /**
- * Kill an active transcoding process
+ * Kill an active transcoding process (non-blocking - just sends signal)
  */
 export function stopTranscoding(cacheKey: string): void {
   const transcoding = activeTranscodings.get(cacheKey);
   if (transcoding) {
-    transcoding.process.kill('SIGTERM');
-    activeTranscodings.delete(cacheKey);
-    console.log(`Stopped transcoding: ${cacheKey}`);
+    console.log(`Sending SIGTERM to transcoding: ${cacheKey}`);
+    const process = transcoding.process;
+    
+    // If process already exited, just clean up
+    if (process.killed || process.exitCode !== null) {
+      activeTranscodings.delete(cacheKey);
+      console.log(`Transcoding already stopped: ${cacheKey}`);
+      return;
+    }
+    
+    // Set up cleanup when process exits
+    process.once('exit', () => {
+      activeTranscodings.delete(cacheKey);
+      console.log(`Transcoding stopped: ${cacheKey}`);
+    });
+    
+    // Send termination signal (non-blocking)
+    process.kill('SIGTERM');
+    
+    // Safety: force kill after 30 seconds if still running
+    setTimeout(() => {
+      if (activeTranscodings.has(cacheKey)) {
+        console.warn(`Force killing stuck transcoding process: ${cacheKey}`);
+        process.kill('SIGKILL');
+      }
+    }, 30000);
   }
+}
+
+/**
+ * Wait for segments to be ready at a specific seek position
+ */
+async function waitForSegmentsAtSeekPosition(segmentDir: string, startSegment: number): Promise<void> {
+  const maxWaitTime = 30000; // 30 seconds
+  const checkInterval = 500; // 500ms
+  const startTime = Date.now();
+  const manifestPath = path.join(segmentDir, "master.m3u8");
+  
+  console.log(`Waiting for segments starting at segment ${startSegment}...`);
+  
+  while (Date.now() - startTime < maxWaitTime) {
+    try {
+      // Check if manifest has been updated with new segments
+      const manifestContent = await fs.readFile(manifestPath, 'utf-8');
+      
+      // Count how many segments at the new position exist
+      const segmentMatches = [...manifestContent.matchAll(/segment(\d+)\.ts/g)];
+      const segmentNumbers = segmentMatches.map(m => parseInt(m[1]));
+      const newSegments = segmentNumbers.filter(n => n >= startSegment);
+      
+      if (newSegments.length >= 2) {
+        console.log(`Seek position ready! Found ${newSegments.length} segments at/after segment ${startSegment}`);
+        return;
+      }
+    } catch (error) {
+      // Manifest might not exist yet, continue waiting
+    }
+    
+    await new Promise(resolve => setTimeout(resolve, checkInterval));
+  }
+  
+  throw new Error(`Timeout waiting for segments at position ${startSegment}`);
+}
+
+/**
+ * Start transcoding from a specific seek position (for on-demand seeking)
+ * Keeps existing segments on disk, starts FFmpeg from the seek position.
+ * FFmpeg will overwrite overlapping segments but that's acceptable.
+ */
+export async function startSeekTranscode(inputPath: string, cacheKey: string, seekTime: number): Promise<void> {
+  const segmentDir = path.join(TRANSCODE_CACHE_DIR, cacheKey);
+  const manifestPath = path.join(segmentDir, "master.m3u8");
+  
+  // Calculate which segment number this seek time corresponds to
+  const startSegment = Math.floor(seekTime / HLS_SEGMENT_DURATION);
+  
+  console.log(`Starting transcode from ${seekTime}s (segment ${startSegment})`);
+  
+  // Ensure segment directory exists
+  await fs.mkdir(segmentDir, { recursive: true });
+  
+  const segmentPattern = path.join(segmentDir, "segment%d.ts");
+  
+  // Start from seekTime, with proper segment numbering
+  const ffmpegArgs = [
+    "-ss", seekTime.toString(),
+    "-i", inputPath,
+    "-c:v", "libx264",
+    "-preset", "veryfast",
+    "-crf", "23",
+    "-c:a", "aac",
+    "-b:a", "128k",
+    "-ac", "2",
+    "-f", "hls",
+    "-hls_time", String(HLS_SEGMENT_DURATION),
+    "-hls_list_size", "0",
+    "-hls_flags", "independent_segments",
+    "-hls_segment_type", "mpegts",
+    "-hls_segment_filename", segmentPattern,
+    "-hls_playlist_type", "event",
+    "-start_number", startSegment.toString(),
+    manifestPath
+  ];
+  
+  console.log(`Starting FFmpeg from ${seekTime}s with segment number ${startSegment}`);
+  
+  const ffmpeg = spawn("ffmpeg", ffmpegArgs);
+  
+  // Track this process
+  activeTranscodings.set(cacheKey, {
+    process: ffmpeg,
+    startTime: Date.now(),
+    cacheKey,
+    inputPath,
+  });
+  
+  ffmpeg.stderr?.on("data", (data) => {
+    const output = data.toString();
+    
+    // Log progress periodically
+    const timeMatch = /time=(\d{2}):(\d{2}):(\d{2}\.\d{2})/g.exec(output);
+    if (timeMatch) {
+      const hours = parseInt(timeMatch[1]);
+      const minutes = parseInt(timeMatch[2]);
+      const seconds = parseFloat(timeMatch[3]);
+      const totalSeconds = hours * 3600 + minutes * 60 + seconds;
+      const actualVideoTime = seekTime + totalSeconds;
+      
+      if (Math.floor(totalSeconds) % 5 === 0) {
+        const segmentsSoFar = Math.floor(totalSeconds / HLS_SEGMENT_DURATION);
+        console.log(`Transcode progress: ${totalSeconds.toFixed(1)}s encoded (video time: ${actualVideoTime.toFixed(1)}s, ~${startSegment + segmentsSoFar} segments)`);
+      }
+    }
+  });
+  
+  ffmpeg.on("close", (code) => {
+    activeTranscodings.delete(cacheKey);
+    if (code === 0) {
+      console.log(`Transcoding completed from ${seekTime}s`);
+    } else {
+      console.log(`Transcoding exited with code ${code}`);
+    }
+  });
+  
+  ffmpeg.on("error", (error) => {
+    console.error("FFmpeg error:", error);
+    activeTranscodings.delete(cacheKey);
+  });
+  
+  // Wait for initial segments to be ready
+  await waitForSegmentsAtSeekPosition(segmentDir, startSegment);
 }
 
 /**
@@ -359,4 +512,3 @@ export async function clearOldCache(maxAgeMs: number = 7 * 24 * 60 * 60 * 1000):
 }
 
 export { TRANSCODE_CACHE_DIR };
-
