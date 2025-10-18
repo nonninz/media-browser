@@ -51,7 +51,14 @@ export function CustomVideoPlayer({ src, videoPath, title, onClose }: CustomVide
     });
 
     hlsRef.current = hls;
-    hls.loadSource(src);
+    
+    // Build URL with segment parameter if not starting from 0
+    const sourceUrl = startSegment > 0
+      ? (src.includes('?') ? `${src}&segment=${startSegment}` : `${src}?segment=${startSegment}`)
+      : src;
+    console.log(`[HLS] Loading source: ${sourceUrl}`);
+    
+    hls.loadSource(sourceUrl);
     hls.attachMedia(video);
 
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -108,6 +115,9 @@ export function CustomVideoPlayer({ src, videoPath, title, onClose }: CustomVide
     const video = videoRef.current;
     if (!video) return;
 
+    // Reset unmounting flag (in case effect re-runs)
+    isUnmountingRef.current = false;
+    
     setLoading(true);
     setError(null);
 
@@ -232,6 +242,9 @@ export function CustomVideoPlayer({ src, videoPath, title, onClose }: CustomVide
     } else if (segmentExistsOnDisk) {
       // Segment exists on disk but not in current manifest - need new manifest
       console.log(`[Seek] Segment exists, requesting new transcode from ${time}s`);
+      
+      // Pause the video while we reload
+      video.pause();
       setBuffering(true);
       setError(`Loading from ${Math.floor(time)}s...`);
       
@@ -245,9 +258,10 @@ export function CustomVideoPlayer({ src, videoPath, title, onClose }: CustomVide
           }),
         });
         
-        // Wait for new manifest to be ready
+        // Wait for new manifest to be ready, then reload HLS
         setTimeout(() => {
           if (video && !isUnmountingRef.current) {
+            console.log(`[Seek] Reloading HLS from segment ${targetSegment}`);
             initializeHLS(video, targetSegment);
           }
         }, 2000);
@@ -259,6 +273,9 @@ export function CustomVideoPlayer({ src, videoPath, title, onClose }: CustomVide
     } else {
       // Segment doesn't exist - need to transcode it
       console.log(`[Seek] Segment doesn't exist, starting transcode from ${time}s`);
+      
+      // CRITICAL: Pause the video immediately
+      video.pause();
       setBuffering(true);
       setError(`Transcoding from ${Math.floor(time)}s...`);
       
@@ -278,13 +295,22 @@ export function CustomVideoPlayer({ src, videoPath, title, onClose }: CustomVide
             const response = await fetch(`/transcode-status?path=${encodeURIComponent(videoPath)}`);
             const status: TranscodeStatus = await response.json();
             
-            // Check if target segment is now available
-            if (status.segments.includes(targetSegment) && status.segments.length >= 2) {
+            // Check if target segment is now available (need at least 2 segments from that position)
+            const segmentsAtPosition = status.segments.filter(s => s >= targetSegment).length;
+            
+            if (status.segments.includes(targetSegment) && segmentsAtPosition >= 2) {
               clearInterval(checkReady);
-              console.log(`[Seek] Segments ready, reloading HLS`);
+              console.log(`[Seek] Segments ready (${segmentsAtPosition} at position ${targetSegment}), reloading HLS`);
+              console.log(`[Seek] Video element:`, video ? 'exists' : 'null', `Unmounting:`, isUnmountingRef.current);
+              
               if (video && !isUnmountingRef.current) {
+                console.log(`[Seek] Calling initializeHLS(video, ${targetSegment})`);
                 initializeHLS(video, targetSegment);
+              } else {
+                console.error(`[Seek] Cannot initialize HLS - video: ${!!video}, unmounting: ${isUnmountingRef.current}`);
               }
+            } else {
+              console.log(`[Seek] Waiting... has segment ${targetSegment}:`, status.segments.includes(targetSegment), `segments at position:`, segmentsAtPosition);
             }
           } catch (error) {
             console.error("Error checking transcode status:", error);

@@ -1,4 +1,4 @@
-import { promises as fs } from "fs";
+import { promises as fs, createWriteStream } from "fs";
 import path from "path";
 import crypto from "crypto";
 import { spawn, ChildProcess } from "child_process";
@@ -134,7 +134,8 @@ async function getVideoDuration(inputPath: string): Promise<number> {
  */
 export async function startHLSTranscoding(inputPath: string, cacheKey: string): Promise<HLSTranscodeResult> {
   const segmentDir = path.join(TRANSCODE_CACHE_DIR, cacheKey);
-  const manifestPath = path.join(segmentDir, "master.m3u8");
+  const startSegment = 0;
+  const manifestPath = path.join(segmentDir, `manifest_seg${startSegment}.m3u8`);
   const durationFilePath = path.join(segmentDir, "duration.txt");
 
   // Create segment directory
@@ -155,7 +156,7 @@ export async function startHLSTranscoding(inputPath: string, cacheKey: string): 
     }
   }
 
-  // Check if manifest already exists AND is complete
+  // Check if manifest already exists
   try {
     await fs.access(manifestPath);
     const stats = await fs.stat(manifestPath);
@@ -163,19 +164,15 @@ export async function startHLSTranscoding(inputPath: string, cacheKey: string): 
       // Verify manifest has actual content and segment references
       const manifestContent = await fs.readFile(manifestPath, 'utf-8');
       const hasSegments = manifestContent.includes('.ts');
-      const isComplete = manifestContent.includes('#EXT-X-ENDLIST');
       
       if (hasSegments) {
         // Only log once per cache key to avoid spam
         if (!recentlyLoggedCacheHits.has(cacheKey)) {
-          console.log(`HLS manifest ready: ${manifestPath} (${isComplete ? 'complete' : 'still transcoding'})`);
+          console.log(`HLS manifest ready: ${path.basename(manifestPath)}`);
           recentlyLoggedCacheHits.add(cacheKey);
-          // Clear after 10 seconds
           setTimeout(() => recentlyLoggedCacheHits.delete(cacheKey), 10000);
         }
         return { manifestPath, segmentDir, cacheKey };
-      } else {
-        console.log(`Manifest file exists but has no segments yet, will wait...`);
       }
     }
   } catch {
@@ -191,6 +188,7 @@ export async function startHLSTranscoding(inputPath: string, cacheKey: string): 
   }
 
   const segmentPattern = path.join(segmentDir, "segment%d.ts");
+  const logFilePath = path.join(segmentDir, `transcode_seg${startSegment}_${Date.now()}.log`);
 
   const ffmpegArgs = [
     "-i", inputPath,
@@ -211,8 +209,9 @@ export async function startHLSTranscoding(inputPath: string, cacheKey: string): 
     manifestPath
   ];
 
-  console.log(`Starting HLS transcoding: ${inputPath}`);
-  console.log(`Output directory: ${segmentDir}`);
+  console.log(`Starting HLS transcoding from segment ${startSegment}`);
+  console.log(`Manifest: ${path.basename(manifestPath)}`);
+  console.log(`Log file: ${path.basename(logFilePath)}`);
 
   const ffmpeg = spawn("ffmpeg", ffmpegArgs);
 
@@ -224,41 +223,29 @@ export async function startHLSTranscoding(inputPath: string, cacheKey: string): 
     inputPath,
   });
 
-  let stderrOutput = "";
-
-  ffmpeg.stderr.on("data", (data) => {
-    const output = data.toString();
-    stderrOutput += output;
-    
-    // Log progress
-    const timeMatch = output.match(/time=(\d+):(\d+):(\d+\.\d+)/);
-    if (timeMatch) {
-      const hours = parseInt(timeMatch[1], 10);
-      const minutes = parseInt(timeMatch[2], 10);
-      const seconds = parseFloat(timeMatch[3]);
-      const currentTime = hours * 3600 + minutes * 60 + seconds;
-      console.log(`Transcoding progress: ${currentTime.toFixed(1)}s`);
-    }
-  });
+  // Redirect FFmpeg output to log file
+  const logStream = createWriteStream(logFilePath, { flags: 'a' });
+  ffmpeg.stderr.pipe(logStream);
 
   ffmpeg.on("close", (code) => {
     activeTranscodings.delete(cacheKey);
+    logStream.end();
     
     if (code === 0) {
-      console.log(`HLS transcoding completed: ${cacheKey}`);
-    } else {
-      console.error(`HLS transcoding failed with code ${code}: ${cacheKey}`);
-      console.error(stderrOutput);
+      console.log(`HLS transcoding completed: seg${startSegment}`);
+    } else if (code !== null) {
+      console.log(`HLS transcoding exited with code ${code}: seg${startSegment} (see ${path.basename(logFilePath)})`);
     }
   });
 
   ffmpeg.on("error", (error) => {
     activeTranscodings.delete(cacheKey);
+    logStream.end();
     console.error(`HLS transcoding error: ${error.message}`);
   });
 
   // Wait for the first segments to be created (30 second timeout)
-  await waitForFirstSegments(segmentDir);
+  await waitForFirstSegments(segmentDir, startSegment);
 
   return { manifestPath, segmentDir, cacheKey };
 }
@@ -266,20 +253,21 @@ export async function startHLSTranscoding(inputPath: string, cacheKey: string): 
 /**
  * Wait for the first HLS segments to be created
  */
-async function waitForFirstSegments(segmentDir: string, timeout: number = 30000): Promise<void> {
+async function waitForFirstSegments(segmentDir: string, startSegment: number = 0, timeout: number = 30000): Promise<void> {
   const startTime = Date.now();
-  const manifestPath = path.join(segmentDir, "master.m3u8");
+  const manifestPath = path.join(segmentDir, `manifest_seg${startSegment}.m3u8`);
   
-  console.log(`Waiting for segments in ${segmentDir}...`);
+  console.log(`Waiting for manifest_seg${startSegment}.m3u8...`);
   
   while (Date.now() - startTime < timeout) {
     try {
       const files = await fs.readdir(segmentDir);
       const segments = files.filter(f => f.endsWith('.ts'));
-      const hasManifest = files.includes('master.m3u8');
+      const manifestName = `manifest_seg${startSegment}.m3u8`;
+      const hasManifest = files.includes(manifestName);
       
       if (hasManifest && segments.length >= 2) {
-        console.log(`Ready! Manifest exists and ${segments.length} segments created`);
+        console.log(`Ready! ${manifestName} exists with ${segments.length} segments`);
         
         // Double-check manifest has content
         const manifestContent = await fs.readFile(manifestPath, 'utf-8');
@@ -288,8 +276,8 @@ async function waitForFirstSegments(segmentDir: string, timeout: number = 30000)
         }
       }
       
-      if (segments.length > 0) {
-        console.log(`Progress: ${segments.length} segments so far...`);
+      if (segments.length > 0 && Date.now() - startTime > 2000) {
+        console.log(`Waiting: ${segments.length} segments so far...`);
       }
     } catch (error) {
       // Directory might not exist yet, keep waiting
@@ -355,13 +343,13 @@ export function stopTranscoding(cacheKey: string): void {
     // Send termination signal (non-blocking)
     process.kill('SIGTERM');
     
-    // Safety: force kill after 30 seconds if still running
+    // Safety: force kill after 10 seconds if still running
     setTimeout(() => {
       if (activeTranscodings.has(cacheKey)) {
         console.warn(`Force killing stuck transcoding process: ${cacheKey}`);
         process.kill('SIGKILL');
       }
-    }, 30000);
+    }, 10000);
   }
 }
 
@@ -369,35 +357,7 @@ export function stopTranscoding(cacheKey: string): void {
  * Wait for segments to be ready at a specific seek position
  */
 async function waitForSegmentsAtSeekPosition(segmentDir: string, startSegment: number): Promise<void> {
-  const maxWaitTime = 30000; // 30 seconds
-  const checkInterval = 500; // 500ms
-  const startTime = Date.now();
-  const manifestPath = path.join(segmentDir, "master.m3u8");
-  
-  console.log(`Waiting for segments starting at segment ${startSegment}...`);
-  
-  while (Date.now() - startTime < maxWaitTime) {
-    try {
-      // Check if manifest has been updated with new segments
-      const manifestContent = await fs.readFile(manifestPath, 'utf-8');
-      
-      // Count how many segments at the new position exist
-      const segmentMatches = [...manifestContent.matchAll(/segment(\d+)\.ts/g)];
-      const segmentNumbers = segmentMatches.map(m => parseInt(m[1]));
-      const newSegments = segmentNumbers.filter(n => n >= startSegment);
-      
-      if (newSegments.length >= 2) {
-        console.log(`Seek position ready! Found ${newSegments.length} segments at/after segment ${startSegment}`);
-        return;
-      }
-    } catch (error) {
-      // Manifest might not exist yet, continue waiting
-    }
-    
-    await new Promise(resolve => setTimeout(resolve, checkInterval));
-  }
-  
-  throw new Error(`Timeout waiting for segments at position ${startSegment}`);
+  return waitForFirstSegments(segmentDir, startSegment, 30000);
 }
 
 /**
@@ -407,10 +367,11 @@ async function waitForSegmentsAtSeekPosition(segmentDir: string, startSegment: n
  */
 export async function startSeekTranscode(inputPath: string, cacheKey: string, seekTime: number): Promise<void> {
   const segmentDir = path.join(TRANSCODE_CACHE_DIR, cacheKey);
-  const manifestPath = path.join(segmentDir, "master.m3u8");
   
   // Calculate which segment number this seek time corresponds to
   const startSegment = Math.floor(seekTime / HLS_SEGMENT_DURATION);
+  const manifestPath = path.join(segmentDir, `manifest_seg${startSegment}.m3u8`);
+  const logFilePath = path.join(segmentDir, `transcode_seg${startSegment}_${Date.now()}.log`);
   
   console.log(`Starting transcode from ${seekTime}s (segment ${startSegment})`);
   
@@ -440,7 +401,8 @@ export async function startSeekTranscode(inputPath: string, cacheKey: string, se
     manifestPath
   ];
   
-  console.log(`Starting FFmpeg from ${seekTime}s with segment number ${startSegment}`);
+  console.log(`Manifest: ${path.basename(manifestPath)}`);
+  console.log(`Log file: ${path.basename(logFilePath)}`);
   
   const ffmpeg = spawn("ffmpeg", ffmpegArgs);
   
@@ -452,37 +414,25 @@ export async function startSeekTranscode(inputPath: string, cacheKey: string, se
     inputPath,
   });
   
-  ffmpeg.stderr?.on("data", (data) => {
-    const output = data.toString();
-    
-    // Log progress periodically
-    const timeMatch = /time=(\d{2}):(\d{2}):(\d{2}\.\d{2})/g.exec(output);
-    if (timeMatch) {
-      const hours = parseInt(timeMatch[1]);
-      const minutes = parseInt(timeMatch[2]);
-      const seconds = parseFloat(timeMatch[3]);
-      const totalSeconds = hours * 3600 + minutes * 60 + seconds;
-      const actualVideoTime = seekTime + totalSeconds;
-      
-      if (Math.floor(totalSeconds) % 5 === 0) {
-        const segmentsSoFar = Math.floor(totalSeconds / HLS_SEGMENT_DURATION);
-        console.log(`Transcode progress: ${totalSeconds.toFixed(1)}s encoded (video time: ${actualVideoTime.toFixed(1)}s, ~${startSegment + segmentsSoFar} segments)`);
-      }
-    }
-  });
+  // Redirect FFmpeg output to log file
+  const logStream = createWriteStream(logFilePath, { flags: 'a' });
+  ffmpeg.stderr.pipe(logStream);
   
   ffmpeg.on("close", (code) => {
     activeTranscodings.delete(cacheKey);
+    logStream.end();
+    
     if (code === 0) {
-      console.log(`Transcoding completed from ${seekTime}s`);
-    } else {
-      console.log(`Transcoding exited with code ${code}`);
+      console.log(`Transcoding completed: seg${startSegment}`);
+    } else if (code !== null) {
+      console.log(`Transcoding exited with code ${code}: seg${startSegment}`);
     }
   });
   
   ffmpeg.on("error", (error) => {
-    console.error("FFmpeg error:", error);
+    console.error(`FFmpeg error: ${error.message}`);
     activeTranscodings.delete(cacheKey);
+    logStream.end();
   });
   
   // Wait for initial segments to be ready

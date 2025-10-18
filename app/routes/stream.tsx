@@ -28,10 +28,21 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   if (needsTranscoding(fullPath)) {
     // For videos that need transcoding, start HLS transcoding and serve the manifest
     try {
-      const { manifestPath, cacheKey } = await getHLSTranscode(fullPath);
+      // Check if a specific segment is requested
+      const segmentParam = url.searchParams.get("segment");
+      const startSegment = segmentParam ? parseInt(segmentParam) : 0;
+      
+      const { manifestPath, cacheKey, segmentDir } = await getHLSTranscode(fullPath);
+      
+      // If a specific segment is requested, use that manifest instead
+      const requestedManifestPath = startSegment > 0 
+        ? path.join(segmentDir, `manifest_seg${startSegment}.m3u8`)
+        : manifestPath;
+      
+      console.log(`Serving manifest: ${path.basename(requestedManifestPath)}`);
       
       // Read the manifest and rewrite segment paths to be absolute
-      let manifestContent = await fs.readFile(manifestPath, 'utf-8');
+      let manifestContent = await fs.readFile(requestedManifestPath, 'utf-8');
       
       // Rewrite relative segment paths to absolute paths
       // segment0.ts -> /stream/hls/{cacheKey}/segment0.ts
@@ -41,8 +52,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       );
       
       const manifestSize = manifestContent.length;
-      
-      console.log(`Serving HLS manifest for transcoded video (${manifestSize} bytes)`);
       
       // Serve the manifest with proper content type
       return new Response(manifestContent, {
