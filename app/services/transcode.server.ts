@@ -216,19 +216,23 @@ export async function startHLSTranscoding(inputPath: string, cacheKey: string): 
   const ffmpeg = spawn("ffmpeg", ffmpegArgs);
 
   // Store the active transcoding process
-  activeTranscodings.set(cacheKey, {
+  const transcodingInfo = {
     process: ffmpeg,
     startTime: Date.now(),
     cacheKey,
     inputPath,
-  });
+  };
+  activeTranscodings.set(cacheKey, transcodingInfo);
 
   // Redirect FFmpeg output to log file
   const logStream = createWriteStream(logFilePath, { flags: 'a' });
   ffmpeg.stderr.pipe(logStream);
 
   ffmpeg.on("close", (code) => {
-    activeTranscodings.delete(cacheKey);
+    // Only delete if this is still the active transcoding (prevent race condition)
+    if (activeTranscodings.get(cacheKey) === transcodingInfo) {
+      activeTranscodings.delete(cacheKey);
+    }
     logStream.end();
     
     if (code === 0) {
@@ -239,7 +243,10 @@ export async function startHLSTranscoding(inputPath: string, cacheKey: string): 
   });
 
   ffmpeg.on("error", (error) => {
-    activeTranscodings.delete(cacheKey);
+    // Only delete if this is still the active transcoding (prevent race condition)
+    if (activeTranscodings.get(cacheKey) === transcodingInfo) {
+      activeTranscodings.delete(cacheKey);
+    }
     logStream.end();
     console.error(`HLS transcoding error: ${error.message}`);
   });
@@ -322,6 +329,13 @@ export function getHLSSegmentDir(cacheKey: string): string {
  * Kill an active transcoding process (non-blocking - just sends signal)
  */
 export function stopTranscoding(cacheKey: string): void {
+  console.debug(`Stopping transcoding: ${cacheKey}`);
+  console.debug('Active transcodings:', Array.from(activeTranscodings.entries()).map(([key, value]) => ({
+    cacheKey: key,
+    pid: value.process.pid,
+    startTime: value.startTime,
+    inputPath: value.inputPath,
+  })));
   const transcoding = activeTranscodings.get(cacheKey);
   if (transcoding) {
     console.log(`Sending SIGTERM to transcoding: ${cacheKey}`);
@@ -334,10 +348,12 @@ export function stopTranscoding(cacheKey: string): void {
       return;
     }
     
-    // Set up cleanup when process exits
+    // Set up cleanup when process exits (only delete if it's still the same process)
     process.once('exit', () => {
-      activeTranscodings.delete(cacheKey);
-      console.log(`Transcoding stopped: ${cacheKey}`);
+      if (activeTranscodings.get(cacheKey) === transcoding) {
+        activeTranscodings.delete(cacheKey);
+        console.log(`Transcoding stopped: ${cacheKey}`);
+      }
     });
     
     // Send termination signal (non-blocking)
@@ -345,7 +361,8 @@ export function stopTranscoding(cacheKey: string): void {
     
     // Safety: force kill after 10 seconds if still running
     setTimeout(() => {
-      if (activeTranscodings.has(cacheKey)) {
+      const currentTranscoding = activeTranscodings.get(cacheKey);
+      if (currentTranscoding === transcoding && !process.killed && process.exitCode === null) {
         console.warn(`Force killing stuck transcoding process: ${cacheKey}`);
         process.kill('SIGKILL');
       }
@@ -407,19 +424,23 @@ export async function startSeekTranscode(inputPath: string, cacheKey: string, se
   const ffmpeg = spawn("ffmpeg", ffmpegArgs);
   
   // Track this process
-  activeTranscodings.set(cacheKey, {
+  const transcodingInfo = {
     process: ffmpeg,
     startTime: Date.now(),
     cacheKey,
     inputPath,
-  });
+  };
+  activeTranscodings.set(cacheKey, transcodingInfo);
   
   // Redirect FFmpeg output to log file
   const logStream = createWriteStream(logFilePath, { flags: 'a' });
   ffmpeg.stderr.pipe(logStream);
   
   ffmpeg.on("close", (code) => {
-    activeTranscodings.delete(cacheKey);
+    // Only delete if this is still the active transcoding (prevent race condition)
+    if (activeTranscodings.get(cacheKey) === transcodingInfo) {
+      activeTranscodings.delete(cacheKey);
+    }
     logStream.end();
     
     if (code === 0) {
@@ -431,7 +452,10 @@ export async function startSeekTranscode(inputPath: string, cacheKey: string, se
   
   ffmpeg.on("error", (error) => {
     console.error(`FFmpeg error: ${error.message}`);
-    activeTranscodings.delete(cacheKey);
+    // Only delete if this is still the active transcoding (prevent race condition)
+    if (activeTranscodings.get(cacheKey) === transcodingInfo) {
+      activeTranscodings.delete(cacheKey);
+    }
     logStream.end();
   });
   
