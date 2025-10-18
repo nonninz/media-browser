@@ -5,8 +5,7 @@ import path from "path";
 import { getFileStats, getMimeType } from "~/services/media.server";
 import { 
   needsTranscoding, 
-  getHLSTranscode,
-  getCacheKey
+  getHLSTranscode
 } from "~/services/transcode.server";
 
 export async function loader({ request, params }: Route.LoaderArgs) {
