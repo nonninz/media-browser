@@ -4,6 +4,7 @@ import { browseDirectory } from "~/services/media.server";
 import {
   Header,
   CustomVideoPlayer,
+  NativeVideoPlayer,
   Breadcrumb,
   FileBrowser,
   BackButton,
@@ -16,6 +17,14 @@ export async function loader({ request }: Route.LoaderArgs) {
   const requestedPath = url.searchParams.get("path") || "";
   
   return browseDirectory(requestedPath);
+}
+
+// Formats that need transcoding (must match server-side logic)
+const NEEDS_TRANSCODING_FORMATS = [".avi", ".mkv", ".mov", ".m4v", ".flv", ".wmv"];
+
+function needsTranscoding(videoPath: string): boolean {
+  const ext = videoPath.toLowerCase().substring(videoPath.lastIndexOf('.'));
+  return NEEDS_TRANSCODING_FORMATS.includes(ext);
 }
 
 export default function Home() {
@@ -51,6 +60,8 @@ export default function Home() {
     ? decodeURIComponent(currentVideo.split("/").pop() || "")
     : "";
 
+  const useNativePlayer = currentVideo && !needsTranscoding(currentVideo);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
       <Header 
@@ -58,7 +69,15 @@ export default function Home() {
         subtitle={`Root: ${data.mediaRoot}`}
       />
 
-      {currentVideo && (
+      {currentVideo && useNativePlayer && (
+        <NativeVideoPlayer
+          src={`/stream/${currentVideo}`}
+          title={videoTitle}
+          onClose={closeVideo}
+        />
+      )}
+
+      {currentVideo && !useNativePlayer && (
         <CustomVideoPlayer
           src={`/stream/${currentVideo}`}
           videoPath={currentVideo}
