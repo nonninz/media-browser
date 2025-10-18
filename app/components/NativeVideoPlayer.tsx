@@ -26,9 +26,15 @@ export function NativeVideoPlayer({ src, title, onClose }: NativeVideoPlayerProp
     };
 
     const handleCanPlay = () => {
-      console.log("[Native Player] Video can play");
+      console.log("[Native Player] Video can play, attempting autoplay");
       setLoading(false);
       setError(null);
+      
+      // Attempt autoplay
+      video.play().catch(err => {
+        console.warn("[Native Player] Autoplay failed:", err);
+        setError("Click play to start");
+      });
     };
 
     const handleTimeUpdate = () => {
