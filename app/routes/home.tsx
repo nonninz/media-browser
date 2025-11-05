@@ -46,6 +46,7 @@ export default function Home() {
       scrollPositionRef.current = window.scrollY;
       const currentPath = searchParams.get("path") || "";
       navigate(`/?path=${encodeURIComponent(currentPath)}&video=${encodeURIComponent(item.path)}`, {
+        replace: true,
         preventScrollReset: true
       });
     } else if (item.isImage) {
@@ -78,6 +79,7 @@ export default function Home() {
   const closeVideo = () => {
     const currentPath = searchParams.get("path") || "";
     navigate(`/?path=${encodeURIComponent(currentPath)}`, {
+      replace: true,
       preventScrollReset: true
     });
   };
