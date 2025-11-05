@@ -419,12 +419,12 @@ export function CustomVideoPlayer({ src, videoPath, title, onClose }: CustomVide
 
   return (
     <div 
-      className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-2"
       onClick={handleBackdropClick}
     >
-      <div className="bg-slate-800 rounded-lg shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden">
+      <div className="bg-slate-800 rounded-lg shadow-2xl w-full h-full max-w-[98vw] max-h-[98vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-slate-700">
+        <div className="flex items-center justify-between p-3 border-b border-slate-700 flex-shrink-0">
           <h2 className="text-lg font-semibold text-white truncate flex-1 mr-4">{title}</h2>
           <button
             onClick={onClose}
@@ -437,7 +437,7 @@ export function CustomVideoPlayer({ src, videoPath, title, onClose }: CustomVide
         </div>
 
         {/* Video */}
-        <div className="bg-black relative">
+        <div className="bg-black relative flex-1 flex items-center justify-center">
           {loading && (
             <div className="absolute inset-0 flex items-center justify-center z-10">
               <div className="text-white text-center">
@@ -463,12 +463,12 @@ export function CustomVideoPlayer({ src, videoPath, title, onClose }: CustomVide
           )}
           <video
             ref={videoRef}
-            className="w-full h-auto max-h-[calc(90vh-180px)]"
+            className="w-full h-full object-contain"
           />
         </div>
 
         {/* Custom Controls */}
-        <div className="bg-slate-900 p-4">
+        <div className="bg-slate-900 p-3 flex-shrink-0">
           {/* Seek Bar */}
           <div className="mb-3">
             <div
