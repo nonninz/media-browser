@@ -12,10 +12,11 @@ export interface FileItemData {
 
 interface FileListItemProps {
   item: FileItemData;
-  onClick: (item: FileItemData) => void;
+  href: string;
+  onClick: (item: FileItemData, event: React.MouseEvent<HTMLAnchorElement>) => void;
 }
 
-export function FileListItem({ item, onClick }: FileListItemProps) {
+export function FileListItem({ item, href, onClick }: FileListItemProps) {
   const getIcon = () => {
     const iconClass = "w-6 h-6";
     
@@ -49,10 +50,25 @@ export function FileListItem({ item, onClick }: FileListItemProps) {
     return null;
   };
 
+  const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    // Allow native behaviors: cmd/ctrl-click opens in new tab
+    // Middle-click and right-click are handled natively via onAuxClick and onContextMenu
+    if (e.metaKey || e.ctrlKey) {
+      // Let the browser handle cmd/ctrl-click natively (opens in new tab)
+      return;
+    }
+    
+    // Prevent default navigation for regular left-click
+    // We'll handle it programmatically via onClick handler
+    e.preventDefault();
+    onClick(item, e);
+  };
+
   return (
-    <button
-      onClick={() => onClick(item)}
-      className="w-full px-6 py-4 hover:bg-slate-700/50 transition-colors flex items-center justify-between group text-left"
+    <a
+      href={href}
+      onClick={handleClick}
+      className="w-full px-6 py-4 hover:bg-slate-700/50 transition-colors flex items-center justify-between group text-left block no-underline cursor-pointer"
     >
       <div className="flex items-center space-x-4 flex-1 min-w-0">
         {/* Icon */}
@@ -75,7 +91,7 @@ export function FileListItem({ item, onClick }: FileListItemProps) {
 
       {/* Badge */}
       {getBadge()}
-    </button>
+    </a>
   );
 }
 

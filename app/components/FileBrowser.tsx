@@ -3,11 +3,12 @@ import { EmptyState } from "./EmptyState";
 
 interface FileBrowserProps {
   items: FileItemData[];
-  onItemClick: (item: FileItemData) => void;
+  onItemClick: (item: FileItemData, event: React.MouseEvent<HTMLAnchorElement>) => void;
+  getHref: (item: FileItemData) => string;
   emptyMessage?: string;
 }
 
-export function FileBrowser({ items, onItemClick, emptyMessage = "This directory is empty" }: FileBrowserProps) {
+export function FileBrowser({ items, onItemClick, getHref, emptyMessage = "This directory is empty" }: FileBrowserProps) {
   if (items.length === 0) {
     return <EmptyState message={emptyMessage} />;
   }
@@ -19,6 +20,7 @@ export function FileBrowser({ items, onItemClick, emptyMessage = "This directory
           <FileListItem
             key={item.path}
             item={item}
+            href={getHref(item)}
             onClick={onItemClick}
           />
         ))}
