@@ -208,7 +208,7 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
             </svg>
           </button>
         </div>
-        <div className="bg-black relative flex-1 flex items-center justify-center">
+        <div className="bg-black relative flex-1 min-h-0 flex items-center justify-center">
           {loading && (
             <div className="absolute inset-0 flex items-center justify-center z-10">
               <div className="text-white text-center">
@@ -230,7 +230,7 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
           <video
             ref={videoRef}
             controls
-            className="w-full h-full object-contain"
+            className="max-w-full max-h-full object-contain"
           >
             Your browser does not support the video tag.
           </video>

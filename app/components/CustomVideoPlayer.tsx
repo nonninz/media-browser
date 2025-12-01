@@ -437,7 +437,7 @@ export function CustomVideoPlayer({ src, videoPath, title, onClose }: CustomVide
         </div>
 
         {/* Video */}
-        <div className="bg-black relative flex-1 flex items-center justify-center">
+        <div className="bg-black relative flex-1 min-h-0 flex items-center justify-center">
           {loading && (
             <div className="absolute inset-0 flex items-center justify-center z-10">
               <div className="text-white text-center">
@@ -463,7 +463,7 @@ export function CustomVideoPlayer({ src, videoPath, title, onClose }: CustomVide
           )}
           <video
             ref={videoRef}
-            className="w-full h-full object-contain"
+            className="max-w-full max-h-full object-contain"
           />
         </div>
 
