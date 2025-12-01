@@ -112,12 +112,7 @@ export function CustomVideoPlayer({ src, videoPath, title, onClose }: CustomVide
       }
     });
 
-    hls.on(Hls.Events.FRAG_LOADING, () => {
-      setBuffering(true);
-    });
-
     hls.on(Hls.Events.FRAG_LOADED, () => {
-      setBuffering(false);
       setError(null);
     });
   }, [src]);
