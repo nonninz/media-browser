@@ -98,7 +98,7 @@ export function NativeVideoPlayer({ src, title, onClose }: NativeVideoPlayerProp
           )}
           <video
             ref={videoRef}
-            className="max-w-full max-h-full object-contain"
+            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
             preload="metadata"
             controls
             autoPlay

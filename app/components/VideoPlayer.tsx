@@ -230,7 +230,7 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
           <video
             ref={videoRef}
             controls
-            className="max-w-full max-h-full object-contain"
+            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
           >
             Your browser does not support the video tag.
           </video>

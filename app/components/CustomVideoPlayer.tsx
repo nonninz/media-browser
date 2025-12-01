@@ -458,7 +458,7 @@ export function CustomVideoPlayer({ src, videoPath, title, onClose }: CustomVide
           )}
           <video
             ref={videoRef}
-            className="max-w-full max-h-full object-contain"
+            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
           />
         </div>
 
