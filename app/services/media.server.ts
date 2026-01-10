@@ -4,7 +4,7 @@ import path from "path";
 const MEDIA_ROOT = process.env.MEDIA_ROOT || "/";
 
 // Video file extensions that can be directly streamed
-const VIDEO_EXTENSIONS = [".mp4", ".webm", ".ogg", ".mov", ".avi", ".mkv", ".m4v"];
+const VIDEO_EXTENSIONS = [".mp4", ".webm", ".ogg", ".mov", ".avi", ".mkv", ".m4v", ".wmv", ".flv"];
 const IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"];
 
 export interface FileItem {
@@ -156,6 +156,8 @@ export function getMimeType(filePath: string): string {
     ".avi": "video/x-msvideo",
     ".mkv": "video/x-matroska",
     ".m4v": "video/x-m4v",
+    ".wmv": "video/x-ms-wmv",
+    ".flv": "video/x-flv",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
     ".png": "image/png",
