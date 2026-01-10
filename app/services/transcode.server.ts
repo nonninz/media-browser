@@ -10,7 +10,7 @@ const TRANSCODE_CACHE_DIR = process.env.TRANSCODE_CACHE_DIR || "/tmp/media-brows
 const BROWSER_COMPATIBLE_FORMATS = [".mp4", ".webm"];
 
 // Formats that need transcoding
-const NEEDS_TRANSCODING_FORMATS = [".avi", ".mkv", ".mov", ".m4v", ".flv", ".wmv"];
+const NEEDS_TRANSCODING_FORMATS = [".avi", ".mkv", ".mov", ".m4v", ".flv", ".wmv", ".mpg", ".mpeg", ".divx"];
 
 // HLS segment duration in seconds
 const HLS_SEGMENT_DURATION = 4;
